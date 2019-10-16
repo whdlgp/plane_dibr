@@ -65,7 +65,7 @@ Vec3d spherical_dibr::rot2eular(Mat R)
     return Vec3d(x, y, z);
 }
 
-Vec3d spherical_dibr::plane2cart(const Vec3d& plane_pixel, double focal, double ox, double oy)
+Vec3d spherical_dibr::plane2cart(const Vec3d& plane_pixel, double fx, double fy, double ox, double oy)
 {
     // pixel coordinate to cartesian coordinate
     //    z
@@ -76,8 +76,8 @@ Vec3d spherical_dibr::plane2cart(const Vec3d& plane_pixel, double focal, double 
     // |
     // y
     Vec3d tmp;
-    tmp[0] = (plane_pixel[1] - ox)*plane_pixel[2]/focal;
-    tmp[1] = (plane_pixel[0] - oy)*plane_pixel[2]/focal;
+    tmp[0] = (plane_pixel[1] - ox)*plane_pixel[2]/fx;
+    tmp[1] = (plane_pixel[0] - oy)*plane_pixel[2]/fy;
     tmp[2] = plane_pixel[2];
 
     Vec3d vec;
@@ -88,7 +88,7 @@ Vec3d spherical_dibr::plane2cart(const Vec3d& plane_pixel, double focal, double 
     return vec;
 }
 
-Vec3d spherical_dibr::cart2plane(const Vec3d& cart, double focal, double ox, double oy)
+Vec3d spherical_dibr::cart2plane(const Vec3d& cart, double fx, double fy, double ox, double oy)
 {
     Vec3d tmp;
     tmp[0] = -cart[1];
@@ -96,8 +96,8 @@ Vec3d spherical_dibr::cart2plane(const Vec3d& cart, double focal, double ox, dou
     tmp[2] = -cart[0];
 
     Vec3d pixel;
-    pixel[0] = tmp[1]*focal/tmp[2] + oy;
-    pixel[1] = tmp[0]*focal/tmp[2] + ox;
+    pixel[0] = tmp[1]*fy/tmp[2] + oy;
+    pixel[1] = tmp[0]*fx/tmp[2] + ox;
     pixel[2] = tmp[2];
 
     return pixel;
@@ -135,26 +135,6 @@ Vec3d spherical_dibr::applyRT(const Vec3d& vec_cartesian, const Mat& rot_mat, co
     return vec_cartesian_tran;
 }
 
-// rotate and translate pixel, in_vec as input(row, col)
-Vec3d spherical_dibr::rt_pixel(const Vec3d& in_vec, const Vec3d& t_vec, const Mat& rot_mat, double focal, double ox, double oy)
-{
-    Vec3d vec_cartesian = plane2cart(in_vec, focal, ox, oy);
-    Vec3d vec_cartesian_rot = applyRT(vec_cartesian, rot_mat, t_vec);
-    Vec3d vec_pixel = cart2plane(vec_cartesian_rot, focal, ox, oy);
-
-    return vec_pixel;
-}
-
-// translate and rotate pixel, in_vec as input(row, col)
-Vec3d spherical_dibr::tr_pixel(const Vec3d& in_vec, const Vec3d& t_vec, const Mat& rot_mat, double focal, double ox, double oy)
-{
-    Vec3d vec_cartesian = plane2cart(in_vec, focal, ox, oy);
-    Vec3d vec_cartesian_rot = applyTR(vec_cartesian, rot_mat, t_vec);
-    Vec3d vec_pixel = cart2plane(vec_cartesian_rot, focal, ox, oy);
-
-    return vec_pixel;
-}
-
 Mat spherical_dibr::median_depth(Mat& depth_double, int size)
 {
     Mat depth_float, depth_double_median, depth_float_median;
@@ -174,18 +154,25 @@ Mat spherical_dibr::closing_depth(Mat& depth_double, int size)
     return depth_double_median;
 }
 
-void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double, Mat& rot_mat, Vec3d t_vec, Mat& im_out, Mat& depth_out_double, double focal, double ox, double oy)
+void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double
+                                                , Mat& rot_mat, Vec3d t_vec
+                                                , Mat& im_out, Mat& depth_out_double
+                                                , camera_info& cam_info, camera_info& vt_cam_info)
 {
-    int im_width = im.cols;
-    int im_height = im.rows;
+    int im_width = cam_info.width;
+    int im_height = cam_info.height;
+
+    int im_out_width = vt_cam_info.width;
+    int im_out_height = vt_cam_info.height;
 
 	Mat srci(im_height, im_width, CV_32F);
 	Mat srcj(im_height, im_width, CV_32F);
     float* srci_data = (float*)srci.data;
     float* srcj_data = (float*)srcj.data;
 
-    im_out.create(im.rows, im.cols, im.type());
-    depth_out_double.create(depth_double.rows, depth_double.cols, depth_double.type());
+    im_out.create(im_out_height, im_out_width, im.type());
+    depth_out_double.create(im_out_height, im_out_width, depth_double.type());
+
     Vec3w* im_data = (Vec3w*)im.data;
     Vec3w* im_out_data = (Vec3w*)im_out.data;
     double* depth_data = (double*)depth_double.data;
@@ -197,24 +184,25 @@ void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double, Mat
         for(int j = 0; j < im_width; j++)
         {
             // forward warping
-            Vec3d vec_pixel = tr_pixel(Vec3d(i, j, depth_data[i*im.cols + j])
-                                    , t_vec
-                                    , rot_mat
-                                    , focal, ox, oy);
+            Vec3d in_vec(i, j, depth_data[i*im_width + j]);
+            Vec3d vec_cartesian = plane2cart(in_vec, cam_info.fx, cam_info.fy, cam_info.ox, cam_info.oy);
+            Vec3d vec_cartesian_rot = applyTR(vec_cartesian, rot_mat, t_vec);
+            Vec3d vec_pixel = cart2plane(vec_cartesian_rot, vt_cam_info.fx, vt_cam_info.fy, vt_cam_info.ox, vt_cam_info.oy);
+
             int dist_i = vec_pixel[0];
             int dist_j = vec_pixel[1];
-            dist_i = clip(dist_i, 0, im_height);
-            dist_j = clip(dist_j, 0, im_width);
+            dist_i = clip(dist_i, 0, im_out_height);
+            dist_j = clip(dist_j, 0, im_out_width);
 
-            srci_data[dist_i*im.cols + dist_j] = i;
-            srcj_data[dist_i*im.cols + dist_j] = j;
+            srci_data[dist_i*im_width + dist_j] = i;
+            srcj_data[dist_i*im_width + dist_j] = j;
             double dist_depth = vec_pixel[2];
             if((dist_i >= 0) && (dist_j >= 0) && (dist_i < im_height) && (dist_j < im_width))
             {
-                if(depth_out_double_data[dist_i*im.cols + dist_j] == 0)
-                    depth_out_double_data[dist_i*im.cols + dist_j] = dist_depth;
-                else if(depth_out_double_data[dist_i*im.cols + dist_j] > dist_depth)
-                    depth_out_double_data[dist_i*im.cols + dist_j] = dist_depth;
+                if(depth_out_double_data[dist_i*im_out_width + dist_j] == 0)
+                    depth_out_double_data[dist_i*im_out_width + dist_j] = dist_depth;
+                else if(depth_out_double_data[dist_i*im_out_width + dist_j] > dist_depth)
+                    depth_out_double_data[dist_i*im_out_width + dist_j] = dist_depth;
             }
         }
     }
@@ -222,39 +210,45 @@ void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double, Mat
     remap(im, im_out, srcj, srci, cv::INTER_LINEAR);
 }
 
-void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double, Mat& rot_mat_inv, Vec3d t_vec_inv, Mat& im_out, double focal, double ox, double oy)
+void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
+                                                , Mat& rot_mat_inv, Vec3d t_vec_inv
+                                                , Mat& im_out
+                                                , camera_info& cam_info, camera_info& vt_cam_info)
 {
-    int im_width = im.cols;
-    int im_height = im.rows;
+    int im_width = cam_info.width;
+    int im_height = cam_info.height;
+
+    int im_out_width = vt_cam_info.width;
+    int im_out_height = vt_cam_info.height;
 	
     Mat srci(im_height, im_width, CV_32F);
 	Mat srcj(im_height, im_width, CV_32F);
     float* srci_data = (float*)srci.data;
     float* srcj_data = (float*)srcj.data;
 
-    im_out.create(im.rows, im.cols, im.type());
+    im_out.create(im_out_height, im_out_width, im.type());
 
     Vec3w* im_data = (Vec3w*)im.data;
     Vec3w* im_out_data = (Vec3w*)im_out.data;
     double* depth_out_double_data = (double*)depth_out_double.data;
     
     #pragma omp parallel for collapse(2)
-    for(int i = 0; i < im_height; i++)
+    for(int i = 0; i < im_out_height; i++)
     {
-        for(int j = 0; j < im_width; j++)
+        for(int j = 0; j < im_out_width; j++)
         {
             // inverse warping
-            Vec3d vec_pixel = rt_pixel(Vec3d(i, j, depth_out_double_data[i*im.cols + j])
-                                       , t_vec_inv
-                                       , rot_mat_inv
-                                       , focal, ox, oy);
+            Vec3d in_vec(i, j, depth_out_double_data[i*im_out_width + j]);
+            Vec3d vec_cartesian = plane2cart(in_vec, vt_cam_info.fx, vt_cam_info.fy, vt_cam_info.ox, vt_cam_info.oy);
+            Vec3d vec_cartesian_rot = applyRT(vec_cartesian, rot_mat_inv, t_vec_inv);
+            Vec3d vec_pixel = cart2plane(vec_cartesian_rot, cam_info.fx, cam_info.fy, cam_info.ox, cam_info.oy);
+
             int origin_i = vec_pixel[0];
             int origin_j = vec_pixel[1];
             origin_i = clip(origin_i, 0, im_height);
             origin_j = clip(origin_j, 0, im_width);
-            srci_data[i*im.cols + j] = origin_i;
-            srcj_data[i*im.cols + j] = origin_j;
-            double dist_depth = vec_pixel[2];
+            srci_data[i*im_out_width + j] = origin_i;
+            srcj_data[i*im_out_width + j] = origin_j;
         }
     }
     remap(im, im_out, srcj, srci, cv::INTER_LINEAR);
@@ -299,24 +293,34 @@ Mat spherical_dibr::revert_depth(Mat& depth_inverted, double min_dist, double ma
     return depth_reverted;
 }
 
-void spherical_dibr::render(cv::Mat& im, cv::Mat& depth_double, double min_dist, double max_dist
-            , cv::Mat& rot_mat, cv::Vec3d t_vec, double focal, double ox, double oy)
+void spherical_dibr::render(cv::Mat& im, cv::Mat& depth_double
+                            , cv::Mat& rot_mat, cv::Vec3d t_vec
+                            , camera_info& cam_info, camera_info& vt_cam_info)
 {
     // Do forward mapping
-    image_depth_forward_mapping(im, depth_double, rot_mat, t_vec, im_out_forward, depth_out_forward, focal, ox, oy);
-    Mat depth_out_forward_inverted = invert_depth(depth_out_forward, min_dist, max_dist);
+    image_depth_forward_mapping(im, depth_double
+                                , rot_mat, t_vec
+                                , im_out_forward, depth_out_forward
+                                , cam_info, vt_cam_info);
+    Mat depth_out_forward_inverted = invert_depth(depth_out_forward, cam_info.depth_min, cam_info.depth_max);
 
     // Filtering depth with median/morphological closing
     int element_size = 7;
     Mat depth_out_median_inverted = median_depth(depth_out_forward_inverted, element_size);
     Mat depth_out_closing_inverted = closing_depth(depth_out_forward_inverted, element_size);
-    depth_out_median = revert_depth(depth_out_median_inverted, min_dist, max_dist);
-    depth_out_closing = revert_depth(depth_out_closing_inverted, min_dist, max_dist);
+    depth_out_median = revert_depth(depth_out_median_inverted, cam_info.depth_min, cam_info.depth_max);
+    depth_out_closing = revert_depth(depth_out_closing_inverted, cam_info.depth_min, cam_info.depth_max);
 
     // Do inverse mapping
     Mat rot_mat_inv = rot_mat.t();
     Vec3d t_vec_inv = -t_vec;
 
-    image_depth_inverse_mapping(im, depth_out_median, rot_mat_inv, t_vec_inv, im_out_inverse_median, focal, ox, oy);
-    image_depth_inverse_mapping(im, depth_out_closing, rot_mat_inv, t_vec_inv, im_out_inverse_closing, focal, ox, oy);
+    image_depth_inverse_mapping(im, depth_out_median
+                                , rot_mat_inv, t_vec_inv
+                                , im_out_inverse_median
+                                , cam_info, vt_cam_info);
+    image_depth_inverse_mapping(im, depth_out_closing
+                                , rot_mat_inv, t_vec_inv
+                                , im_out_inverse_closing
+                                , cam_info, vt_cam_info);
 }

@@ -65,6 +65,7 @@ int main()
 
         cam_info[i].cam_name = input_dir + reader.Get(cams, "imagename", "UNKNOWN");
         cam_info[i].depth_name = input_dir + reader.Get(cams, "depthname", "UNKNOWN");
+        cam_info[i].projection = reader.GetInteger(cams, "projection", -1);
         cam_info[i].fx = reader.GetReal(cams, "fx", -1);
         cam_info[i].fy = reader.GetReal(cams, "fy", -1);
         cam_info[i].ox = reader.GetReal(cams, "ox", -1);
@@ -80,19 +81,26 @@ int main()
     }
 
     // Read Virtual View Point information
-    Vec3d vt_rot, vt_tran;
-    double vt_depth_min, vt_depth_max;
-    vt_depth_min = reader.GetReal("virtualview", "depthmin", -1);
-    vt_depth_max = reader.GetReal("virtualview", "depthmax", -1);
-    vt_rot = string_to_vec(reader.Get("virtualview", "rotation", "UNKNOWN"));
-    vt_tran = string_to_vec(reader.Get("virtualview", "translation", "UNKNOWN"));
+    camera_info vt_cam_info;
+    vt_cam_info.cam_name = output_dir + reader.Get("virtualview", "imagename", "UNKNOWN");
+    vt_cam_info.depth_name = output_dir + reader.Get("virtualview", "depthname", "UNKNOWN");
+    vt_cam_info.projection = reader.GetInteger("virtualview", "projection", -1);
+    vt_cam_info.fx = reader.GetReal("virtualview", "fx", -1);
+    vt_cam_info.fy = reader.GetReal("virtualview", "fy", -1);
+    vt_cam_info.ox = reader.GetReal("virtualview", "ox", -1);
+    vt_cam_info.oy = reader.GetReal("virtualview", "oy", -1);
+    vt_cam_info.rot = string_to_vec(reader.Get("virtualview", "rotation", "UNKNOWN"));
+    vt_cam_info.tran = string_to_vec(reader.Get("virtualview", "translation", "UNKNOWN"));
+    vt_cam_info.depth_min = reader.GetReal("virtualview", "depthmin", -1);
+    vt_cam_info.depth_max = reader.GetReal("virtualview", "depthmax", -1);
+    vt_cam_info.width = reader.GetInteger("virtualview", "width", -1);
+    vt_cam_info.height = reader.GetInteger("virtualview", "height", -1);
+    vt_cam_info.bit_depth_image = reader.GetInteger("virtualview", "bitdepthimage", -1);
+    vt_cam_info.bit_depth_depth = reader.GetInteger("virtualview", "bitdepthdepth", -1);
 
     six_dof_reader image_reader;
-    spherical_dibr sp_dibr;
     vector<Mat> im(cam_num);
     vector<Mat> depth_double(cam_num);
-    vector<Mat> rot_mat(cam_num);
-    vector<Mat> rot_mat_inv(cam_num);
     for(int i = 0; i < cam_num; i++)
     {
         im[i] = image_reader.read_yuv(cam_info[i].cam_name, cam_info[i].width, cam_info[i].height, cam_info[i].bit_depth_image);
@@ -100,11 +108,9 @@ int main()
                                                         , cam_info[i].bit_depth_depth
                                                         , cam_info[i].depth_min
                                                         , cam_info[i].depth_max);
-
-        rot_mat[i] = sp_dibr.eular2rot(Vec3f(RAD(cam_info[i].rot[0]), RAD(cam_info[i].rot[1]), RAD(cam_info[i].rot[2])));
-        rot_mat_inv[i] = rot_mat[i].t();
     }
-    Mat vt_rot_mat = sp_dibr.eular2rot(Vec3f(RAD(vt_rot[0]), RAD(vt_rot[1]), RAD(vt_rot[2])));
+
+    spherical_dibr sp_dibr;
     
     vector<Mat> img_forward(cam_num);
     vector<Mat> depth_forward(cam_num);
@@ -120,16 +126,21 @@ int main()
         cout << "image " << i << " now do rendering" << endl;
 
         // Calculate R|t to render virtual view point
-        Mat r = vt_rot_mat*rot_mat_inv[i];
-        Vec3d t_tmp = vt_tran-cam_info[i].tran;
-        double* rot_mat_data = (double*)rot_mat[i].data;
+        Mat cam_rot_mat = sp_dibr.eular2rot(Vec3f(RAD(cam_info[i].rot[0]), RAD(cam_info[i].rot[1]), RAD(cam_info[i].rot[2])));
+        Mat rot_mat_inv = cam_rot_mat.t();
+        Mat vt_rot_mat = sp_dibr.eular2rot(Vec3f(RAD(vt_cam_info.rot[0]), RAD(vt_cam_info.rot[1]), RAD(vt_cam_info.rot[2])));
+        Mat r = vt_rot_mat*rot_mat_inv;
+        Vec3d t_tmp = vt_cam_info.tran-cam_info[i].tran;
+        double* rot_mat_data = (double*)cam_rot_mat.data;
         Vec3d t;
         t[0] = rot_mat_data[0]*t_tmp[0] + rot_mat_data[1]*t_tmp[1] + rot_mat_data[2]*t_tmp[2];
         t[1] = rot_mat_data[3]*t_tmp[0] + rot_mat_data[4]*t_tmp[1] + rot_mat_data[5]*t_tmp[2];
         t[2] = rot_mat_data[6]*t_tmp[0] + rot_mat_data[7]*t_tmp[1] + rot_mat_data[8]*t_tmp[2];
 
         // Render virtual view point
-        spd.render(im[i], depth_double[i], cam_info[i].depth_min, cam_info[i].depth_max, r, t, cam_info[i].fx, cam_info[i].ox, cam_info[i].oy);
+        spd.render(im[i], depth_double[i]
+                   , r, t
+                   , cam_info[i], vt_cam_info);
         STOP_TIME(render_one_image);
 
         // Put result of each rendering results to vector buffer
@@ -141,8 +152,9 @@ int main()
         cam_dist[i] = sqrt(t[0]*t[0] + t[1]*t[1] + t[2]*t[2]);
     }
 
-    int width = im[0].cols;
-    int height = im[0].rows;
+    // start blending
+    int width = vt_cam_info.width;
+    int height = vt_cam_info.height;
     Mat blended_img(height, width, CV_16UC3);
     vector<Vec3w*> im_data(cam_num);
     vector<double*> depth_data(cam_num);
