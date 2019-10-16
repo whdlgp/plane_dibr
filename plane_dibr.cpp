@@ -170,8 +170,8 @@ void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double
     float* srci_data = (float*)srci.data;
     float* srcj_data = (float*)srcj.data;
 
-    im_out.create(im_out_height, im_out_width, im.type());
-    depth_out_double.create(im_out_height, im_out_width, depth_double.type());
+    im_out = Mat::zeros(im_out_height, im_out_width, im.type());
+    depth_out_double = Mat::zeros(im_out_height, im_out_width, depth_double.type());
 
     Vec3w* im_data = (Vec3w*)im.data;
     Vec3w* im_out_data = (Vec3w*)im_out.data;
@@ -226,7 +226,7 @@ void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
     float* srci_data = (float*)srci.data;
     float* srcj_data = (float*)srcj.data;
 
-    im_out.create(im_out_height, im_out_width, im.type());
+    im_out = Mat::zeros(im_out_height, im_out_width, im.type());
 
     Vec3w* im_data = (Vec3w*)im.data;
     Vec3w* im_out_data = (Vec3w*)im_out.data;
@@ -243,10 +243,10 @@ void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
             Vec3d vec_cartesian_rot = applyRT(vec_cartesian, rot_mat_inv, t_vec_inv);
             Vec3d vec_pixel = cart2plane(vec_cartesian_rot, cam_info.fx, cam_info.fy, cam_info.ox, cam_info.oy);
 
-            int origin_i = vec_pixel[0];
-            int origin_j = vec_pixel[1];
-            origin_i = clip(origin_i, 0, im_height);
-            origin_j = clip(origin_j, 0, im_width);
+            float origin_i = vec_pixel[0];
+            float origin_j = vec_pixel[1];
+            origin_i = clip(origin_i, 0.f, im_height*1.f);
+            origin_j = clip(origin_j, 0.f, im_width*1.f);
             srci_data[i*im_out_width + j] = origin_i;
             srcj_data[i*im_out_width + j] = origin_j;
         }
