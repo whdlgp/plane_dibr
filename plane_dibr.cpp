@@ -154,6 +154,7 @@ Mat spherical_dibr::closing_depth(Mat& depth_double, int size)
     return depth_double_median;
 }
 
+// forwarding warping of depthmap 
 void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double
                                                 , Mat& rot_mat, Vec3d t_vec
                                                 , Mat& im_out, Mat& depth_out_double
@@ -222,7 +223,7 @@ void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
     int im_out_height = vt_cam_info.height;
 	
     Mat srci(im_height, im_width, CV_32F);
-	Mat srcj(im_height, im_width, CV_32F);
+    Mat srcj(im_height, im_width, CV_32F);
     float* srci_data = (float*)srci.data;
     float* srcj_data = (float*)srcj.data;
 
@@ -256,18 +257,26 @@ void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
 
 Mat spherical_dibr::invert_depth(Mat& depth_double, double min_dist, double max_dist)
 {
-    Mat depth_inverted(depth_double.rows, depth_double.cols, depth_double.type());
+    Mat depth_inverted =  Mat::zeros(depth_double.rows, depth_double.cols, depth_double.type());
+
+#ifdef USE_PTR    
     double* depth_double_data = (double*)depth_double.data;
     double* depth_inverted_data = (double*)depth_inverted.data;
+#endif
     #pragma omp parallel for collapse(2)
     for(int i = 0; i < depth_double.rows; i++)
     {
         for(int j = 0; j < depth_double.cols; j++)
         {
+#ifdef USE_PTR		
             if(depth_double_data[i*depth_double.cols + j] > 1e-6)
                 depth_inverted_data[i*depth_double.cols + j] = max_dist - depth_double_data[i*depth_double.cols + j];
             else
                 depth_inverted_data[i*depth_double.cols + j] = 0;
+#else
+            if(depth_double.at<double>(i,j) > 1e-6)
+                depth_inverted.at<double>(i,j) = max_dist - depth_double.at<double>(i,j);
+#endif
         }
     }
 
@@ -276,51 +285,70 @@ Mat spherical_dibr::invert_depth(Mat& depth_double, double min_dist, double max_
 
 Mat spherical_dibr::revert_depth(Mat& depth_inverted, double min_dist, double max_dist)
 {
-    Mat depth_reverted(depth_inverted.rows, depth_inverted.cols, depth_inverted.type());
+    Mat depth_reverted = Mat::zeros(depth_inverted.rows, depth_inverted.cols, depth_inverted.type());
+#ifdef USE_PTR		
     double* depth_inverted_data = (double*)depth_inverted.data;
     double* depth_reverted_data = (double*)depth_reverted.data;
+#endif
+    //
     #pragma omp parallel for collapse(2)
     for(int i = 0; i < depth_inverted.rows; i++)
     {
         for(int j = 0; j < depth_inverted.cols; j++)
         {
+#ifdef USE_PTR		
             if(depth_inverted_data[i*depth_inverted.cols + j] > 1e-6)
                 depth_reverted_data[i*depth_inverted.cols + j] = max_dist - depth_inverted_data[i*depth_inverted.cols + j];
             else
                 depth_reverted_data[i*depth_inverted.cols + j] = 0;
+#else
+            if(depth_inverted.at<double>(i,j)> 1e-6)
+                depth_reverted.at<double>(i,j) = max_dist - depth_inverted.at<double>(i,j);
+#endif
         }
     }
     return depth_reverted;
 }
 
+#define CLOSING_FILTER
+#define MEDIAN_FILTER
 void spherical_dibr::render(cv::Mat& im, cv::Mat& depth_double
                             , cv::Mat& rot_mat, cv::Vec3d t_vec
                             , camera_info& cam_info, camera_info& vt_cam_info)
 {
-    // Do forward mapping
+    // 1. Do forward depthmap warping
     image_depth_forward_mapping(im, depth_double
                                 , rot_mat, t_vec
                                 , im_out_forward, depth_out_forward
                                 , cam_info, vt_cam_info);
     Mat depth_out_forward_inverted = invert_depth(depth_out_forward, cam_info.depth_min, cam_info.depth_max);
 
-    // Filtering depth with median/morphological closing
+    // 2. Filtering depth with median/morphological closing
     int element_size = 7;
+ #ifdef MEDIAN_FILTER  
     Mat depth_out_median_inverted = median_depth(depth_out_forward_inverted, element_size);
-    Mat depth_out_closing_inverted = closing_depth(depth_out_forward_inverted, element_size);
     depth_out_median = revert_depth(depth_out_median_inverted, cam_info.depth_min, cam_info.depth_max);
-    depth_out_closing = revert_depth(depth_out_closing_inverted, cam_info.depth_min, cam_info.depth_max);
+#endif 
 
-    // Do inverse mapping
+#ifdef CLOSING_FILTER
+    Mat depth_out_closing_inverted = closing_depth(depth_out_forward_inverted, element_size);
+    depth_out_closing = revert_depth(depth_out_closing_inverted, cam_info.depth_min, cam_info.depth_max);
+#endif
+
+    // 3. Do inverse mapping
     Mat rot_mat_inv = rot_mat.t();
     Vec3d t_vec_inv = -t_vec;
 
+#ifdef MEDIAN_FILTER  
     image_depth_inverse_mapping(im, depth_out_median
                                 , rot_mat_inv, t_vec_inv
                                 , im_out_inverse_median
                                 , cam_info, vt_cam_info);
+#endif
+#ifdef CLOSING_FILTER
     image_depth_inverse_mapping(im, depth_out_closing
                                 , rot_mat_inv, t_vec_inv
                                 , im_out_inverse_closing
                                 , cam_info, vt_cam_info);
+#endif 
 }

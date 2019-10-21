@@ -1,5 +1,5 @@
-#include "plane_dibr.hpp"
 #include "debug_print.h"
+#include "plane_dibr.hpp"
 #include "6dof_reader.hpp"
 
 #include <iostream>
@@ -38,9 +38,15 @@ Vec3d string_to_vec(string str)
     return vec;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
-    INIReader reader("camera_info.ini");
+    bool print_camera = true;
+    if(argc  < 2){
+	   cout << "usage:" << argv[0]   <<  " camera_info_file" << endl;
+	   return 0;
+    }
+
+    INIReader reader(argv[1]);
 
     if (reader.ParseError() < 0)
     {
@@ -55,7 +61,8 @@ int main()
     std::cout << "Config loaded from 'camera_info.ini'\n"
               << "number of camera : " <<  cam_num << "\n" << endl;
 
-    // Read Camera information
+    //
+    // 0. Read Camera information
     vector<camera_info> cam_info(cam_num);
     for(int i = 0; i < cam_num; i++)
     {
@@ -78,6 +85,20 @@ int main()
         cam_info[i].height = reader.GetInteger(cams, "height", -1);
         cam_info[i].bit_depth_image = reader.GetInteger(cams, "bitdepthimage", -1);
         cam_info[i].bit_depth_depth = reader.GetInteger(cams, "bitdepthdepth", -1);
+	
+	if (print_camera){ // print camera params  
+       	 	cout << "- yuvfile:" << cam_info[i].cam_name << endl;
+        	cout << "- depth:" << cam_info[i].depth_name << endl;
+        	cout << "- size:"  << cam_info[i].width  << "," << cam_info[i].height  << endl;
+        	cout << "- bits:"   << cam_info[i].bit_depth_image <<  "," << cam_info[i].bit_depth_depth  << endl;
+        	cout << "- fx,y:"<<  cam_info[i].fx << "," << cam_info[i].fy << endl;
+        	cout << "- ox,y:"<<  cam_info[i].ox << ", " << cam_info[i].oy << endl; 
+        	/*cout << "- cam_info[i].rot = string_to_vec(reader.Get(cams, "rotation", "UNKNOWN"));
+        	cout << cam_info[i].tran = string_to_vec(reader.Get(cams, "translation", "UNKNOWN"));
+		*/
+        	cout << "- depth range:" << cam_info[i].depth_min  << "," << cam_info[i].depth_max << endl;
+	}
+    
     }
 
     // Read Virtual View Point information
@@ -112,13 +133,13 @@ int main()
 
     spherical_dibr sp_dibr;
     
-    vector<Mat> img_forward(cam_num);
-    vector<Mat> depth_forward(cam_num);
-    vector<Mat> depth_map_result(cam_num);
-    vector<Mat> img_result(cam_num);
+    vector<Mat> img_forward(cam_num); // forward warped image for test
+    vector<Mat> depth_forward(cam_num); // forward warped depth before post filtering  
+    vector<Mat> depth_map_result(cam_num); // forward warped depth after post filtering  
+    vector<Mat> img_result(cam_num); //   inverse warped virtual view 
     vector<double> cam_dist(cam_num);
 
-    // Start rendering
+    // 2. 3D DIBR rendering
     for(int i = 0; i < cam_num; i++)
     {
         START_TIME(render_one_image);
@@ -146,9 +167,9 @@ int main()
         // Put result of each rendering results to vector buffer
 
         img_forward[i] = spd.im_out_forward;
-        depth_forward[i] = spd.depth_out_forward;
-        depth_map_result[i] = spd.depth_out_median;
-        img_result[i] = spd.im_out_inverse_median;
+        depth_forward[i] = spd.depth_out_forward; // depthmap forwared before post-processing 
+        depth_map_result[i] = spd.depth_out_median; // depthmap forwared after post-processing 
+        img_result[i] = spd.im_out_inverse_median; // image warped final 
         cam_dist[i] = sqrt(t[0]*t[0] + t[1]*t[1] + t[2]*t[2]);
     }
 

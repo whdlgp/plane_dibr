@@ -12,6 +12,7 @@ using namespace cv;
 // for YUV
 void six_dof_reader::get_yuv_chan_10bit(ifstream& file, Mat& y_mat, Mat& u_mat, Mat& v_mat, int width, int height)
 {
+	//1. allocate memory 
     y_mat.create(height, width, CV_16UC1);
     u_mat.create(height/2, width/2, CV_16UC1);
     v_mat.create(height/2, width/2, CV_16UC1);
@@ -19,7 +20,7 @@ void six_dof_reader::get_yuv_chan_10bit(ifstream& file, Mat& y_mat, Mat& u_mat, 
     unsigned short* u_mat_data = (unsigned short*)u_mat.data;
     unsigned short* v_mat_data = (unsigned short*)v_mat.data;
 
-    // read 10bit LE YUV frame and convert to 16bit
+    // 2. read 10bit LE YUV frame and convert to 16bit
     int y_size = height*width;
     int uv_size = height*width/4;
     for(int i = 0; i < y_size; i++)
@@ -27,6 +28,9 @@ void six_dof_reader::get_yuv_chan_10bit(ifstream& file, Mat& y_mat, Mat& u_mat, 
         unsigned short data;
         unsigned char data_u;
         unsigned char data_l;
+
+	// @TODO, load once and convert 
+	// @TODO, why not 2 byte operation 
         file.read(reinterpret_cast<char*>(&data_l), 1);
         file.read(reinterpret_cast<char*>(&data_u), 1);
         data = ((data_u << 8) | data_l) << 6;
@@ -64,6 +68,9 @@ void six_dof_reader::get_yuv_chan_10bit(ifstream& file, Mat& y_mat, Mat& u_mat, 
 
 void six_dof_reader::get_yuv_chan_8bit(ifstream& file, Mat& y_mat, Mat& u_mat, Mat& v_mat, int width, int height)
 {
+
+
+    // 1. memory allocation 
     y_mat.create(height, width, CV_16UC1);
     u_mat.create(height/2, width/2, CV_16UC1);
     v_mat.create(height/2, width/2, CV_16UC1);
@@ -72,7 +79,7 @@ void six_dof_reader::get_yuv_chan_8bit(ifstream& file, Mat& y_mat, Mat& u_mat, M
     unsigned short* v_mat_data = (unsigned short*)v_mat.data;
 
 
-    // read 10bit LE YUV frame and convert to 16bit
+    // 2. read 10bit LE YUV frame and convert to 16bit
     int y_size = height*width;
     int uv_size = height*width/4;
     for(int i = 0; i < y_size; i++)
@@ -99,6 +106,8 @@ void six_dof_reader::get_yuv_chan_8bit(ifstream& file, Mat& y_mat, Mat& u_mat, M
         v_mat_data[i] = data << 8;
     }
 
+    // 3. matching the U, V size to Y
+    // @TODO:  use Y.size() instead of scaling factor 
     resize(u_mat, u_mat, Size(), 2, 2, CV_INTER_NN);
     resize(v_mat, v_mat, Size(), 2, 2, CV_INTER_NN);
 }
@@ -117,9 +126,11 @@ Mat six_dof_reader::merge_yuv_chan(Mat& y_mat, Mat& u_mat, Mat& v_mat)
 
 Mat six_dof_reader::read_yuv(string image_name, int width, int height, int bit_depth)
 {
-    ifstream image(image_name, ios::in | ios::binary);
-
     Mat y_image, u_image, v_image, rgb_image, yuv_image;
+    ifstream image(image_name, ios::in | ios::binary);
+    if (!image.is_open())
+	    return rgb_image;
+
     switch(bit_depth)
     {
         case 8:
@@ -135,6 +146,8 @@ Mat six_dof_reader::read_yuv(string image_name, int width, int height, int bit_d
         break;
     }
 
+    image.close(); // BUG FIX
+
     return rgb_image;
 }
 
@@ -143,9 +156,12 @@ Mat six_dof_reader::depth_double_yuv(string image_name, int width, int height, i
 {
     Mat depth;
 
+    // 1. read depth (integer YUV format)
     Mat tmp = read_yuv(image_name, width, height, bit_depth);
     extractChannel(tmp, depth, 0);
     
+
+    // 2. convert to double distance 
     Mat depth_double(height, width, CV_64FC1);
     unsigned short* depth_data = (unsigned short*)depth.data;
     double* depth_double_data = (double*)depth_double.data;
