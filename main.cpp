@@ -177,12 +177,18 @@ int main(int argc, char *argv[])
     int width = vt_cam_info.width;
     int height = vt_cam_info.height;
     Mat blended_img(height, width, CV_16UC3);
+
+#ifdef USE_PTR
     vector<Vec3w*> im_data(cam_num);
+#endif
+
     vector<double*> depth_data(cam_num);
     Vec3w* blended_data = (Vec3w*)blended_img.data;
     for(int i = 0; i < cam_num; i++)
     {
+#ifdef USE_PTR
         im_data[i] = (Vec3w*)img_result[i].data;
+#endif
         depth_data[i] = (double*)depth_map_result[i].data;
     }
 
@@ -210,15 +216,26 @@ int main(int argc, char *argv[])
                 {
                     if(valid_count > 1)
                     {
+#ifdef USE_PTR
                         pixel_val[0] += (1/cam_dist[c]/dist_sum)*im_data[c][i*width + j][0];
                         pixel_val[1] += (1/cam_dist[c]/dist_sum)*im_data[c][i*width + j][1];
                         pixel_val[2] += (1/cam_dist[c]/dist_sum)*im_data[c][i*width + j][2];
+#else
+                        Vec3w rgbw = img_result[c].at<Vec3w>(i,j);
+                        Vec3d rgbd = (1.0/cam_dist[c]/dist_sum)*(Vec3d)rgbw;
+                        pixel_val += rgbd;
+#endif
                     }
                     else if(valid_count == 1)
                     {
+#ifdef USE_PTR
                         pixel_val[0] += im_data[c][i*width + j][0];
                         pixel_val[1] += im_data[c][i*width + j][1];
                         pixel_val[2] += im_data[c][i*width + j][2];
+#else
+                        Vec3w rgb = img_result[c].at<Vec3w>(i,j);
+                        pixel_val += (Vec3d)rgb;
+#endif
                     }
                 }
             }

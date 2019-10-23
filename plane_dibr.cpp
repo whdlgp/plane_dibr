@@ -230,7 +230,7 @@ void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
     im_out = Mat::zeros(im_out_height, im_out_width, im.type());
 
     Vec3w* im_data = (Vec3w*)im.data;
-    Vec3w* im_out_data = (Vec3w*)im_out.data;
+    //Vec3w* im_out_data = (Vec3w*)im_out.data;
     double* depth_out_double_data = (double*)depth_out_double.data;
     
     #pragma omp parallel for collapse(2)
@@ -248,8 +248,13 @@ void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
             float origin_j = vec_pixel[1];
             origin_i = clip(origin_i, 0.f, im_height*1.f);
             origin_j = clip(origin_j, 0.f, im_width*1.f);
+#ifdef USE_PTR // TODO: Somehow  this pointer access make some problems 
             srci_data[i*im_out_width + j] = origin_i;
             srcj_data[i*im_out_width + j] = origin_j;
+#else
+            srci.at<float>(i,j) = origin_i;
+            srcj.at<float>(i,j) = origin_j;
+#endif 
         }
     }
     remap(im, im_out, srcj, srci, cv::INTER_LINEAR);
@@ -310,8 +315,9 @@ Mat spherical_dibr::revert_depth(Mat& depth_inverted, double min_dist, double ma
     return depth_reverted;
 }
 
-#define CLOSING_FILTER
+//#define CLOSING_FILTER
 #define MEDIAN_FILTER
+static int  num = 0;
 void spherical_dibr::render(cv::Mat& im, cv::Mat& depth_double
                             , cv::Mat& rot_mat, cv::Vec3d t_vec
                             , camera_info& cam_info, camera_info& vt_cam_info)
@@ -344,11 +350,28 @@ void spherical_dibr::render(cv::Mat& im, cv::Mat& depth_double
                                 , rot_mat_inv, t_vec_inv
                                 , im_out_inverse_median
                                 , cam_info, vt_cam_info);
+
+    //cout << "GAP:" << im.isContinuous() << " vs " << im_out_inverse_median.isContinuous() << endl;
 #endif
+
 #ifdef CLOSING_FILTER
     image_depth_inverse_mapping(im, depth_out_closing
                                 , rot_mat_inv, t_vec_inv
                                 , im_out_inverse_closing
                                 , cam_info, vt_cam_info);
+
+    /*
+    cout << "Type:" << im.type() << " vs " << im_out_inverse_closing.type() << endl;
+    //Mat m16 = im_out_inverse_closing/255;
+    Mat m16 = im/255;
+    Mat m8;
+    m16.convertTo(m8,CV_8UC3);
+    if (num == 0){
+    	imwrite( "closing_rendered0.png", m8);
+    }else{
+    	imwrite( "closing_rendered1.png", m8);
+    }
+    */
 #endif 
+//	num = 1;
 }
