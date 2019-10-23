@@ -135,21 +135,31 @@ Vec3d spherical_dibr::applyRT(const Vec3d& vec_cartesian, const Mat& rot_mat, co
     return vec_cartesian_tran;
 }
 
+// TODO: I think many OpenCV function use 32F ie. float as default, then  we donot need to use double
+//       because that high accuracy is not needed for DIBR processing. Right?
 Mat spherical_dibr::median_depth(Mat& depth_double, int size)
 {
     Mat depth_float, depth_double_median, depth_float_median;
     depth_double.convertTo(depth_float, CV_32FC1);
     medianBlur(depth_float, depth_float_median, size);
+#ifdef HOLE_FILLING
+    medianBlur(mask, mask, size);  // To refelct the filtering to the mask 
+#endif
     depth_float_median.convertTo(depth_double_median, CV_64FC1);
     return depth_double_median;
 }
 
+// TODO: I think many OpenCV function use 32F ie. float as default, then  we donot need to use double
+//       because that high accuracy is not needed for DIBR processing. Right?
 Mat spherical_dibr::closing_depth(Mat& depth_double, int size)
 {
     Mat depth_float, depth_double_median, depth_float_median;
     depth_double.convertTo(depth_float, CV_32FC1);
     Mat element(size, size, CV_32FC1, Scalar(1.0));
     morphologyEx(depth_float, depth_float_median, CV_MOP_CLOSE, element);
+#ifdef HOLE_FILLING
+    morphologyEx(mask, mask, CV_MOP_CLOSE, element); // To refelct the filtering to the mask 
+#endif
     depth_float_median.convertTo(depth_double_median, CV_64FC1);
     return depth_double_median;
 }
@@ -165,6 +175,10 @@ void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double
 
     int im_out_width = vt_cam_info.width;
     int im_out_height = vt_cam_info.height;
+    // BUG FIX !!!
+    im_out_width = im_width;
+    im_out_height = im_height;
+    //  END of BUG FIX
 
 	Mat srci(im_height, im_width, CV_32F);
 	Mat srcj(im_height, im_width, CV_32F);
@@ -173,6 +187,12 @@ void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double
 
     im_out = Mat::zeros(im_out_height, im_out_width, im.type());
     depth_out_double = Mat::zeros(im_out_height, im_out_width, depth_double.type());
+
+#ifdef HOLE_FILLING
+    cout << "mask allocating" << endl;
+    mask = Mat::zeros(im_out_height, im_out_width, CV_8UC1);  // 1 : has value, 0: not
+    cout << mask.size()  << ":" << mask.type()  << endl;
+#endif
 
     Vec3w* im_data = (Vec3w*)im.data;
     Vec3w* im_out_data = (Vec3w*)im_out.data;
@@ -200,9 +220,12 @@ void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double
             double dist_depth = vec_pixel[2];
             if((dist_i >= 0) && (dist_j >= 0) && (dist_i < im_height) && (dist_j < im_width))
             {
-                if(depth_out_double_data[dist_i*im_out_width + dist_j] == 0)
+                if(depth_out_double_data[dist_i*im_out_width + dist_j] == 0){  // TODO: how about to use mask value
                     depth_out_double_data[dist_i*im_out_width + dist_j] = dist_depth;
-                else if(depth_out_double_data[dist_i*im_out_width + dist_j] > dist_depth)
+#ifdef HOLE_FILLING
+		    mask.at<unsigned char>(dist_i, dist_j) = 255;   // now has value 
+#endif
+		} else if(depth_out_double_data[dist_i*im_out_width + dist_j] > dist_depth)
                     depth_out_double_data[dist_i*im_out_width + dist_j] = dist_depth;
             }
         }
@@ -307,7 +330,8 @@ Mat spherical_dibr::revert_depth(Mat& depth_inverted, double min_dist, double ma
             else
                 depth_reverted_data[i*depth_inverted.cols + j] = 0;
 #else
-            if(depth_inverted.at<double>(i,j)> 1e-6)
+     //   BUG FIXED:  when max dist, here you will have 0 and then you donot invert the value,  so that become 0 
+     //       if(depth_inverted.at<double>(i,j)> 1e-6)
                 depth_reverted.at<double>(i,j) = max_dist - depth_inverted.at<double>(i,j);
 #endif
         }
@@ -331,7 +355,7 @@ void spherical_dibr::render(cv::Mat& im, cv::Mat& depth_double
 
     // 2. Filtering depth with median/morphological closing
     int element_size = 7;
- #ifdef MEDIAN_FILTER  
+#ifdef MEDIAN_FILTER  
     Mat depth_out_median_inverted = median_depth(depth_out_forward_inverted, element_size);
     depth_out_median = revert_depth(depth_out_median_inverted, cam_info.depth_min, cam_info.depth_max);
 #endif 

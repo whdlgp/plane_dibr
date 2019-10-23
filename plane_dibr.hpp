@@ -47,6 +47,10 @@ public:
     cv::Mat depth_out_forward;
     cv::Mat depth_out_median;
     cv::Mat depth_out_closing;
+#define HOLE_FILLING
+#ifdef HOLE_FILLING
+    cv::Mat mask;  // binary mask (1: has value, 0: not) 
+#endif
 
 private:
     cv::Vec3d plane2cart(const cv::Vec3d& plane_pixel, double fx, double fy, double ox, double oy);
