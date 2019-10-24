@@ -65,6 +65,7 @@ Vec3d spherical_dibr::rot2eular(Mat R)
     return Vec3d(x, y, z);
 }
 
+// pixel (u,v) to (X, Y, Z)
 Vec3d spherical_dibr::plane2cart(const Vec3d& plane_pixel, double fx, double fy, double ox, double oy)
 {
     // pixel coordinate to cartesian coordinate
@@ -88,6 +89,7 @@ Vec3d spherical_dibr::plane2cart(const Vec3d& plane_pixel, double fx, double fy,
     return vec;
 }
 
+// (X,Y,Z) to pixel domain
 Vec3d spherical_dibr::cart2plane(const Vec3d& cart, double fx, double fy, double ox, double oy)
 {
     Vec3d tmp;
@@ -103,20 +105,30 @@ Vec3d spherical_dibr::cart2plane(const Vec3d& cart, double fx, double fy, double
     return pixel;
 }
 
+
+// Translation and Rotation 
 Vec3d spherical_dibr::applyTR(const Vec3d& vec_cartesian, const Mat& rot_mat, const Vec3d t_vec)
 {
+#ifdef USE_PTR
     double* rot_mat_data = (double*)rot_mat.data;
-    Vec3d vec_cartesian_tran;
-    vec_cartesian_tran[0] = vec_cartesian[0] - t_vec[0];
-    vec_cartesian_tran[1] = vec_cartesian[1] - t_vec[1];
-    vec_cartesian_tran[2] = vec_cartesian[2] - t_vec[2];
+#endif
 
-    Vec3d vec_cartesian_rot;
-    vec_cartesian_rot[0] = rot_mat_data[0]*vec_cartesian_tran[0] + rot_mat_data[1]*vec_cartesian_tran[1] + rot_mat_data[2]*vec_cartesian_tran[2];
-    vec_cartesian_rot[1] = rot_mat_data[3]*vec_cartesian_tran[0] + rot_mat_data[4]*vec_cartesian_tran[1] + rot_mat_data[5]*vec_cartesian_tran[2];
-    vec_cartesian_rot[2] = rot_mat_data[6]*vec_cartesian_tran[0] + rot_mat_data[7]*vec_cartesian_tran[1] + rot_mat_data[8]*vec_cartesian_tran[2];
+    Vec3d tran;
+    tran[0] = vec_cartesian[0] - t_vec[0];
+    tran[1] = vec_cartesian[1] - t_vec[1];
+    tran[2] = vec_cartesian[2] - t_vec[2];
 
-    return vec_cartesian_rot;
+    Vec3d rot;
+#ifdef USE_PTR
+    rot[0] = rot_mat_data[0]*tran[0] + rot_mat_data[1]*tran[1] + rot_mat_data[2]*tran[2];
+    rot[1] = rot_mat_data[3]*tran[0] + rot_mat_data[4]*tran[1] + rot_mat_data[5]*tran[2];
+    rot[2] = rot_mat_data[6]*tran[0] + rot_mat_data[7]*tran[1] + rot_mat_data[8]*tran[2];
+#else
+    rot[0] = rot_mat.at<double>(0,0)*tran[0] + rot_mat.at<double>(0,1)*tran[1] + rot_mat.at<double>(0,2)*tran[2];
+    rot[1] = rot_mat.at<double>(1,0)*tran[0] + rot_mat.at<double>(1,1)*tran[1] + rot_mat.at<double>(1,2)*tran[2];
+    rot[2] = rot_mat.at<double>(2,0)*tran[0] + rot_mat.at<double>(2,1)*tran[1] + rot_mat.at<double>(2,2)*tran[2];
+#endif
+    return rot;
 }
 
 Vec3d spherical_dibr::applyRT(const Vec3d& vec_cartesian, const Mat& rot_mat, const Vec3d t_vec)
@@ -180,24 +192,33 @@ void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double
     im_out_height = im_height;
     //  END of BUG FIX
 
-	Mat srci(im_height, im_width, CV_32F);
-	Mat srcj(im_height, im_width, CV_32F);
-    float* srci_data = (float*)srci.data;
-    float* srcj_data = (float*)srcj.data;
+    cout << "in-size:" << im_width << "x" << im_height << endl;
+    cout << "out-size:" << im_out_width << "x" << im_out_height << endl;
+
+// This will make seg-fault, bus fault and so on, because wrong re-map .....??
+//#define RGB_FWD_WARPING
+#ifdef RGB_FWD_WARPING
+    Mat srci(im_height, im_width, CV_32F);
+    Mat srcj(im_height, im_width, CV_32F);
+#endif
 
     im_out = Mat::zeros(im_out_height, im_out_width, im.type());
     depth_out_double = Mat::zeros(im_out_height, im_out_width, depth_double.type());
 
 #ifdef HOLE_FILLING
-    cout << "mask allocating" << endl;
+    //cout << "mask allocating" << endl;
     mask = Mat::zeros(im_out_height, im_out_width, CV_8UC1);  // 1 : has value, 0: not
-    cout << mask.size()  << ":" << mask.type()  << endl;
+    //cout << mask.size()  << ":" << mask.type()  << endl;
 #endif
 
+#ifdef USE_PTR
+    float* srci_data = (float*)srci.data;
+    float* srcj_data = (float*)srcj.data;
     Vec3w* im_data = (Vec3w*)im.data;
     Vec3w* im_out_data = (Vec3w*)im_out.data;
     double* depth_data = (double*)depth_double.data;
     double* depth_out_double_data = (double*)depth_out_double.data;
+#endif
 
     #pragma omp parallel for collapse(2)
     for(int i = 0; i < im_height; i++)
@@ -205,7 +226,11 @@ void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double
         for(int j = 0; j < im_width; j++)
         {
             // forward warping
+#ifdef USE_PTR
             Vec3d in_vec(i, j, depth_data[i*im_width + j]);
+#else
+            Vec3d in_vec(i, j, depth_double.at<double>(i,j));
+#endif
             Vec3d vec_cartesian = plane2cart(in_vec, cam_info.fx, cam_info.fy, cam_info.ox, cam_info.oy);
             Vec3d vec_cartesian_rot = applyTR(vec_cartesian, rot_mat, t_vec);
             Vec3d vec_pixel = cart2plane(vec_cartesian_rot, vt_cam_info.fx, vt_cam_info.fy, vt_cam_info.ox, vt_cam_info.oy);
@@ -215,11 +240,20 @@ void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double
             dist_i = clip(dist_i, 0, im_out_height);
             dist_j = clip(dist_j, 0, im_out_width);
 
-            srci_data[dist_i*im_width + dist_j] = i;
-            srcj_data[dist_i*im_width + dist_j] = j;
+#ifdef RGB_FWD_WARPING
+#ifdef USE_PTR		    
+            srci_data[dist_i*im_width + dist_j] = (float)i;
+            srcj_data[dist_i*im_width + dist_j] = (float)j;
+#else
+            srci.at<float>(dist_i, dist_j) = (float)i;
+            srcj.at<float>(dist_i, dist_j) = (float)j;
+#endif
+#endif
+
             double dist_depth = vec_pixel[2];
             if((dist_i >= 0) && (dist_j >= 0) && (dist_i < im_height) && (dist_j < im_width))
             {
+#ifdef USE_PTR		    
                 if(depth_out_double_data[dist_i*im_out_width + dist_j] == 0){  // TODO: how about to use mask value
                     depth_out_double_data[dist_i*im_out_width + dist_j] = dist_depth;
 #ifdef HOLE_FILLING
@@ -227,11 +261,23 @@ void spherical_dibr::image_depth_forward_mapping(Mat& im, Mat& depth_double
 #endif
 		} else if(depth_out_double_data[dist_i*im_out_width + dist_j] > dist_depth)
                     depth_out_double_data[dist_i*im_out_width + dist_j] = dist_depth;
+#else
+                if(depth_out_double.at<double>(dist_i,dist_j) < 1.0e-30){  
+                //if(mask.at<unsigned char>(dist_i,dist_j) == 0){ // no value yet  
+                    depth_out_double.at<double>(dist_i,dist_j) = dist_depth;
+#ifdef HOLE_FILLING
+		    mask.at<unsigned char>(dist_i, dist_j) = 255;   // now has value 
+#endif
+		} else if(depth_out_double.at<double>(dist_i,dist_j) > dist_depth)  // more closer one
+                    depth_out_double.at<double>(dist_i, dist_j) = dist_depth;
+#endif
             }
         }
     }
 
+#ifdef RGB_FWD_WARPING
     remap(im, im_out, srcj, srci, cv::INTER_LINEAR);
+#endif
 }
 
 void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
@@ -247,14 +293,18 @@ void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
 	
     Mat srci(im_height, im_width, CV_32F);
     Mat srcj(im_height, im_width, CV_32F);
+#ifdef USE_PTR // TODO: Somehow  this pointer access make some problems 
     float* srci_data = (float*)srci.data;
     float* srcj_data = (float*)srcj.data;
 
     im_out = Mat::zeros(im_out_height, im_out_width, im.type());
 
     Vec3w* im_data = (Vec3w*)im.data;
-    //Vec3w* im_out_data = (Vec3w*)im_out.data;
+   // Vec3w* im_out_data = (Vec3w*)im_out.data;
     double* depth_out_double_data = (double*)depth_out_double.data;
+#endif 
+
+    im_out = Mat::zeros(im_out_height, im_out_width, im.type());
     
     #pragma omp parallel for collapse(2)
     for(int i = 0; i < im_out_height; i++)
@@ -262,7 +312,11 @@ void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
         for(int j = 0; j < im_out_width; j++)
         {
             // inverse warping
+#if USE_PTR
             Vec3d in_vec(i, j, depth_out_double_data[i*im_out_width + j]);
+#else
+            Vec3d in_vec(i, j, depth_out_double.at<double>(i,j));
+#endif
             Vec3d vec_cartesian = plane2cart(in_vec, vt_cam_info.fx, vt_cam_info.fy, vt_cam_info.ox, vt_cam_info.oy);
             Vec3d vec_cartesian_rot = applyRT(vec_cartesian, rot_mat_inv, t_vec_inv);
             Vec3d vec_pixel = cart2plane(vec_cartesian_rot, cam_info.fx, cam_info.fy, cam_info.ox, cam_info.oy);
@@ -283,6 +337,9 @@ void spherical_dibr::image_depth_inverse_mapping(Mat& im, Mat& depth_out_double
     remap(im, im_out, srcj, srci, cv::INTER_LINEAR);
 }
 
+/* far(large)-near(small)  to far (small)-near(large) 
+ * so that in filtering process, values are upgraded to FG values 
+ * */
 Mat spherical_dibr::invert_depth(Mat& depth_double, double min_dist, double max_dist)
 {
     Mat depth_inverted =  Mat::zeros(depth_double.rows, depth_double.cols, depth_double.type());
@@ -332,6 +389,9 @@ Mat spherical_dibr::revert_depth(Mat& depth_inverted, double min_dist, double ma
 #else
      //   BUG FIXED:  when max dist, here you will have 0 and then you donot invert the value,  so that become 0 
      //       if(depth_inverted.at<double>(i,j)> 1e-6)
+#ifdef HOLE_FILLING
+              if(mask.at<unsigned char>(i,j) > 0)
+#endif
                 depth_reverted.at<double>(i,j) = max_dist - depth_inverted.at<double>(i,j);
 #endif
         }

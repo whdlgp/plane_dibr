@@ -16,14 +16,21 @@ void six_dof_reader::get_yuv_chan_10bit(ifstream& file, Mat& y_mat, Mat& u_mat, 
     y_mat.create(height, width, CV_16UC1);
     u_mat.create(height/2, width/2, CV_16UC1);
     v_mat.create(height/2, width/2, CV_16UC1);
+#ifdef USE_PTR
     unsigned short* y_mat_data = (unsigned short*)y_mat.data;
     unsigned short* u_mat_data = (unsigned short*)u_mat.data;
     unsigned short* v_mat_data = (unsigned short*)v_mat.data;
+#endif
 
     // 2. read 10bit LE YUV frame and convert to 16bit
     int y_size = height*width;
     int uv_size = height*width/4;
+#ifdef USE_PTR
     for(int i = 0; i < y_size; i++)
+#else
+    for(int y = 0; y < height; y++)
+    for(int x = 0; x < width; x++)
+#endif
     {
         unsigned short data;
         unsigned char data_u;
@@ -35,10 +42,19 @@ void six_dof_reader::get_yuv_chan_10bit(ifstream& file, Mat& y_mat, Mat& u_mat, 
         file.read(reinterpret_cast<char*>(&data_u), 1);
         data = ((data_u << 8) | data_l) << 6;
 
+#ifdef USE_PTR
         y_mat_data[i] = data;
+#else
+        y_mat.at<unsigned short>(y,x) = data;
+#endif
     }
 
+#ifdef USE_PTR
     for(int i = 0; i < uv_size; i++)
+#else
+    for(int y = 0; y < height/2; y++)
+    for(int x = 0; x < width/2; x++)
+#endif
     {
         unsigned short data;
         unsigned char data_u;
@@ -47,10 +63,19 @@ void six_dof_reader::get_yuv_chan_10bit(ifstream& file, Mat& y_mat, Mat& u_mat, 
         file.read(reinterpret_cast<char*>(&data_u), 1);
         data = ((data_u << 8) | data_l) << 6;
 
+#ifdef USE_PTR
         u_mat_data[i] = data;
+#else
+        u_mat.at<unsigned short>(y,x) = data;
+#endif
     }
 
+#ifdef USE_PTR
     for(int i = 0; i < uv_size; i++)
+#else
+    for(int y = 0; y < height/2; y++)
+    for(int x = 0; x < width/2; x++)
+#endif
     {
         unsigned short data;
         unsigned char data_u;
@@ -59,7 +84,11 @@ void six_dof_reader::get_yuv_chan_10bit(ifstream& file, Mat& y_mat, Mat& u_mat, 
         file.read(reinterpret_cast<char*>(&data_u), 1);
         data = ((data_u << 8) | data_l) << 6;
 
+#ifdef USE_PTR
         v_mat_data[i] = data;
+#else
+        v_mat.at<unsigned short>(y,x) = data;
+#endif
     }
 
     resize(u_mat, u_mat, Size(), 2, 2, CV_INTER_NN);
