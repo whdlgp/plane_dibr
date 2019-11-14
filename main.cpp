@@ -324,7 +324,7 @@ int main(int argc, char *argv[])
 #else
         t[0] = cam_rot_mat.at<double>(0,0)*t_tmp[0] + cam_rot_mat.at<double>(0,1)*t_tmp[1] + cam_rot_mat.at<double>(0,2)*t_tmp[2];
         t[1] = cam_rot_mat.at<double>(1,0)*t_tmp[0] + cam_rot_mat.at<double>(1,1)*t_tmp[1] + cam_rot_mat.at<double>(1,2)*t_tmp[2];
-        t[2] = cam_rot_mat.at<double>(2,0)*t_tmp[0] + cam_rot_mat.at<double>(2,1)*t_tmp[1] + cam_rot_mat.at<double>(2.2)*t_tmp[2];
+        t[2] = cam_rot_mat.at<double>(2,0)*t_tmp[0] + cam_rot_mat.at<double>(2,1)*t_tmp[1] + cam_rot_mat.at<double>(2,2)*t_tmp[2];
 #endif
         // Render virtual view point
         spd.render(im[i], depth_double[i], r, t, cam_info[i], vt_cam_info);
