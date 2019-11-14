@@ -137,42 +137,53 @@ static void fill_holes(Mat &blended, vector<Mat>& depths, vector<Mat>& images,  
    
     for(int y = 0; y < hole.rows;  y++){
     	for(int x = 0; x < hole.cols;  x++){
-
+	    //cout << x << ',' << y << endl;
 	    if( hole.at<unsigned char>(y,x) == 0){
+	    //cout << "hole at "  << x << ',' << y << endl;
             // 2. find the nearest pixel has larger depth which probably from background 
-		     
 		   for (int dist = 1; dist < 100; dist++){ // TODO: hard-coding ^^;
-
 			   // search only  4 direction (TODO)
-			   int x1 =  x - dist,  y1 = y - dist; // topleft
-			   if  (x1 >=0 && x1 < hole.rows && y1 >= 0 && y1 < hole.cols){
+			   int x1 = x - dist;
+			   int y1 = y - dist; // topleft
+			   if  (x1 >=0 && x1 < hole.cols && y1 >= 0 && y1 < hole.rows){
 				   if(hole.at<unsigned char >(y1,x1)  > 0){
      					    //3. copy the pixel value from that nearest pixel. 
-					    blended.at<Vec3w>(x,y) = blended.at<Vec3w>(x1,y1);  
+	    			            //	cout << "1-1: dist " << dist << endl;
+					    blended.at<Vec3w>(y,x) = blended.at<Vec3w>(y1, x1);  
+	    			            //cout << "1-2" << endl;
 					    break;
 				   }
 			   } 
-			   x1 =  x + dist,  y1 = y - dist; // topright
-			   if  (x1 >= 0 && x1 < hole.rows && y1 >= 0 && y1 < hole.cols){
+			   x1 = x + dist;
+			   y1 = y - dist; // topright
+			   if  (x1 >= 0 && x1 < hole.cols && y1 >= 0 && y1 < hole.rows){
 				   if(hole.at<unsigned char >(y1,x1)  > 0){
      					    //3. copy the pixel value from that nearest pixel. 
+	    			            //cout << "2-1: dist " << dist << endl;
 					    blended.at<Vec3w>(y,x) = blended.at<Vec3w>(y1,x1);  
+	    			            //cout << "2-1" << endl;
 					    break;
 				   }
 			   } 
-			   x1 =  x - dist,  y1 = y + dist; // botomleft
-			   if  (x1 >=0 && x1 < hole.rows && y1 >= 0 && y1 < hole.cols){
+			   x1 = x - dist;  
+			   y1 = y + dist; // botomleft
+			   if  (x1 >=0 && x1 < hole.cols && y1 >= 0 && y1 < hole.rows){
 				   if(hole.at<unsigned char >(y1,x1)  > 0){
      					    //3. copy the pixel value from that nearest pixel. 
+	    			            //cout << "3-1: dist " << dist << endl;
 					    blended.at<Vec3w>(y,x) = blended.at<Vec3w>(y1,x1);  
+	    			            //cout << "3-1" << endl;
 					    break;
 				   }
 			   } 
-			   x1 =  x + dist,  y1 = y + dist; // bottomright
-			   if  (x1 >=0 && x1 < hole.rows && y1 >= 0 && y1 < hole.cols){
+			   x1 = x + dist;
+			   y1 = y + dist; // bottomright
+			   if  (x1 >=0 && x1 < hole.cols && y1 >= 0 && y1 < hole.rows){
 				   if(hole.at<unsigned char >(y1,x1)  > 0){
      					   //3. copy the pixel value from that nearest pixel. 
+	    			        //	cout << "4-1: dist " << dist << endl;
 					    blended.at<Vec3w>(y,x) = blended.at<Vec3w>(y1,x1);  
+	    			        //	cout << "4-1" << endl;
 					    break;
 				   }
 			   } 
@@ -319,16 +330,16 @@ int main(int argc, char *argv[])
         spd.render(im[i], depth_double[i], r, t, cam_info[i], vt_cam_info);
 
         // Put result of each rendering results to vector buffer
-        img_forward[i] = spd.im_out_forward;
-        depth_forward[i] = spd.depth_out_forward; // depthmap forwared before post-processing 
+        img_forward[i] = spd.im_out_forward.clone();
+        depth_forward[i] = spd.depth_out_forward.clone(); // depthmap forwared before post-processing 
 #if 0 
         img_forward[i] = spd.im_out_forward;
 #endif
-        depth_map_result[i] = spd.depth_out_median; // depthmap forwared after post-processing 
-        img_result[i] = spd.im_out_inverse_median; // image warped final 
+        depth_map_result[i] = spd.depth_out_median.clone(); // depthmap forwared after post-processing 
+        img_result[i] = spd.im_out_inverse_median.clone(); // image warped final 
         cam_dist[i] = sqrt(t[0]*t[0] + t[1]*t[1] + t[2]*t[2]);
 #ifdef HOLE_FILLING
-	masks[i] = spd.mask;
+	masks[i] = spd.mask.clone();
 #endif
         STOP_TIME(render_one_image);
     }
